@@ -1,20 +1,19 @@
 from flask import Flask, render_template, request, redirect, url_for, session
 import sqlite3
 from datetime import datetime
-import os  # For generating or reading the secret key
+import os
+import config  
 
 app = Flask(__name__)
-
-app.secret_key = os.urandom(24)  # Generates a random key
+app.secret_key = os.urandom(24)
 
 # Function to connect to the found database
 def get_found_db_connection():
-    conn = sqlite3.connect('found.db')
-    return conn
+    return sqlite3.connect(config.FOUND_DB_PATH)
 
 # Function to connect to the user database
 def get_user_db_connection():
-    conn = sqlite3.connect('user.db')
+    conn = sqlite3.connect(config.USER_DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -22,7 +21,7 @@ def get_user_db_connection():
 def initialize_user_db():
     conn = get_user_db_connection()
     cursor = conn.cursor()
-    cursor.execute('''
+    cursor.execute(f'''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             first_name TEXT NOT NULL,
@@ -49,11 +48,10 @@ def index():
     # Fetch found data for the current date
     conn = get_found_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT name, time, image_path FROM found WHERE date = ?", (current_date,))
+    cursor.execute(f"SELECT name, time, image_path FROM {config.TABLE_NAME} WHERE date = ?", (current_date,))
     found_data = cursor.fetchall()
     conn.close()
 
-    # Render the index page with the current date's data
     return render_template('index.html', selected_date=current_date, found_data=found_data, username=session['username'])
 
 
@@ -67,7 +65,7 @@ def login():
         user = conn.execute('SELECT * FROM users WHERE email = ? AND password = ?', (email, password)).fetchone()
         conn.close()
         if user:
-            session['username'] = f"{user['first_name']} {user['last_name']}"  
+            session['username'] = f"{user['first_name']} {user['last_name']}"
             return redirect(url_for('index'))
         else:
             return render_template('login.html', error='Invalid credentials')
@@ -99,35 +97,32 @@ def register():
 def found():
     if 'username' not in session:
         return redirect(url_for('login'))
-    
+
     selected_date = request.form.get('selected_date')
     selected_date_obj = datetime.strptime(selected_date, '%Y-%m-%d')
     formatted_date = selected_date_obj.strftime('%Y-%m-%d')
 
     conn = get_found_db_connection()
     cursor = conn.cursor()
-
-    cursor.execute("SELECT name, time, image_path FROM found WHERE date = ?", (formatted_date,))
+    cursor.execute(f"SELECT name, time, image_path FROM {config.TABLE_NAME} WHERE date = ?", (formatted_date,))
     found_data = cursor.fetchall()
     conn.close()
 
     if not found_data:
         return render_template('index.html', selected_date=selected_date, no_data=True, username=session['username'])
-    
+
     return render_template('index.html', selected_date=selected_date, found_data=found_data, username=session['username'])
 
 # About route (requires login)
 @app.route('/about')
 def about():
-    #if 'username' not in session:
-    #    return redirect(url_for('login'))
-    return render_template('about.html', username=session['username'])
+    return render_template('about.html', username=session.get('username', ''))
 
 # Logout route
 @app.route('/logout')
 def logout():
-    session.pop('username', None)  # Remove the user's session
+    session.pop('username', None)
     return redirect(url_for('login'))
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host=config.SERVER_HOST, port=config.SERVER_PORT, debug=True)
