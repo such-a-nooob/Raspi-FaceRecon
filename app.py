@@ -1,8 +1,9 @@
 from flask import Flask, render_template, request, redirect, url_for, session
+from werkzeug.security import generate_password_hash, check_password_hash
 import sqlite3
 from datetime import datetime
 import os
-import config  
+import config
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
@@ -34,7 +35,6 @@ def initialize_user_db():
     conn.commit()
     conn.close()
 
-# Initialize the user database when the app starts
 initialize_user_db()
 
 # Home route (requires login)
@@ -44,8 +44,6 @@ def index():
         return redirect(url_for('login'))
 
     current_date = datetime.now().strftime('%Y-%m-%d')
-    
-    # Fetch found data for the current date
     conn = get_found_db_connection()
     cursor = conn.cursor()
     cursor.execute(f"SELECT name, time, image_path FROM {config.TABLE_NAME} WHERE date = ?", (current_date,))
@@ -54,7 +52,6 @@ def index():
 
     return render_template('index.html', selected_date=current_date, found_data=found_data, username=session['username'])
 
-
 # Login route
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -62,9 +59,9 @@ def login():
         email = request.form['email']
         password = request.form['password']
         conn = get_user_db_connection()
-        user = conn.execute('SELECT * FROM users WHERE email = ? AND password = ?', (email, password)).fetchone()
+        user = conn.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
         conn.close()
-        if user:
+        if user and check_password_hash(user['password'], password):
             session['username'] = f"{user['first_name']} {user['last_name']}"
             return redirect(url_for('index'))
         else:
@@ -80,10 +77,12 @@ def register():
         dob = request.form['dob']
         email = request.form['email']
         password = request.form['password']
+        hashed_password = generate_password_hash(password)
+
         conn = get_user_db_connection()
         try:
             conn.execute('INSERT INTO users (first_name, last_name, dob, email, password) VALUES (?, ?, ?, ?, ?)',
-                         (first_name, last_name, dob, email, password))
+                         (first_name, last_name, dob, email, hashed_password))
             conn.commit()
             conn.close()
             return redirect(url_for('login'))
@@ -92,7 +91,7 @@ def register():
             return render_template('register.html', error='Email already exists')
     return render_template('register.html')
 
-# found route (requires login)
+# Found route (requires login)
 @app.route('/found', methods=['POST'])
 def found():
     if 'username' not in session:
@@ -116,7 +115,9 @@ def found():
 # About route (requires login)
 @app.route('/about')
 def about():
-    return render_template('about.html', username=session.get('username', ''))
+    if 'username' not in session:
+        return redirect(url_for('login'))
+    return render_template('about.html', username=session['username'])
 
 # Logout route
 @app.route('/logout')
